@@ -1,98 +1,86 @@
 <?php
 declare(strict_types=1);
+header('Content-Type: application/json; charset=utf-8');
 
-header('Content-Type: application/json; charset=utf-8');require_once 'conexion.php'; // conexión $mysqli
-
-// Recibir datos JSON
-$input = json_decode(file_get_contents('php://input'), true);
-$action = $input['action'] ?? 'list';
-
-$response = [
-    'success' => false,
-    'data' => [],
-    'message' => ''
-];
+require_once '../controladores/conexion.php';
+require_once '../klaseak/gela.php';
 
 try {
-    switch ($action) {
+// Detectar acción correctamente (tanto GET como JSON)
+$action = $_GET['action'] ?? ($_POST['action'] ?? 'GET');
+$method = $_SERVER['REQUEST_METHOD'];
+$input = json_decode(file_get_contents('php://input'), true) ?? [];
 
-        // =================================================
-        // LISTAR GELAS
-        // =================================================
-        case 'GET':
-            $query = "SELECT id, izena FROM gela ORDER BY izena ASC";
-            $result = $mysqli->query($query);
+switch (strtoupper($action)) {
 
-            if ($result) {
-                $gelas = [];
-                while ($row = $result->fetch_assoc()) {
-                    $gelas[] = $row;
-                }
-                $response['success'] = true;
-                $response['data'] = $gelas;
-            } else {
-                $response['message'] = "Error en la consulta: " . $mysqli->error;
-            }
-            break;
+    // =================================================
+    // LISTAR GELAS
+    // =================================================
+    case 'GET':
+        $gelak = Gela::getAll();
+        $data = array_map(fn($g) => $g->toArray(), $gelak);
+        echo json_encode([
+            'success' => true,
+            'data' => $data
+        ]);
+        break;
 
-        // =================================================
-        // AÑADIR GELA (opcional)
-        // =================================================
-        case 'POST':
-            $nombre = $input['izena'] ?? null;
-            if (!$nombre) throw new Exception("Falta el nombre de la gela");
+    // =================================================
+    // CREAR GELA
+    // =================================================
+    case 'POST':
+        $izena = $input['izena'] ?? null;
+        $taldea = $input['taldea'] ?? null;
+        if (!$izena) throw new Exception("Falta el nombre de la gela");
 
-            $stmt = $mysqli->prepare("INSERT INTO gela (izena) VALUES (?)");
-            $stmt->bind_param("s", $nombre);
-            $stmt->execute();
-            $stmt->close();
+        $nueva = Gela::create($izena, $taldea);
+        echo json_encode([
+            'success' => true,
+            'data' => $nueva ? $nueva->toArray() : null,
+            'message' => 'Gela creada correctamente'
+        ]);
+        break;
 
-            $response['success'] = true;
-            $response['message'] = "Gela añadida correctamente";
-            break;
+    // =================================================
+    // ELIMINAR GELA
+    // =================================================
+    case 'DELETE':
+        $id = $input['id'] ?? ($_GET['id'] ?? null);
+        if (!$id) throw new Exception("Falta el ID de la gela");
+        $gela = Gela::getById((int)$id);
+        if (!$gela) throw new Exception("Gela no encontrada");
+        $ok = $gela->delete();
+        echo json_encode([
+            'success' => $ok,
+            'message' => $ok ? 'Gela eliminada' : 'Error al eliminar'
+        ]);
+        break;
 
-        // =================================================
-        // ACTUALIZAR GELA (opcional)
-        // =================================================
-        case 'PUT':
-            $id = $input['id'] ?? null;
-            $nombre = $input['izena'] ?? null;
-            if (!$id || !$nombre) throw new Exception("Faltan campos obligatorios");
+    case 'INSERT': // <-- Nuevo caso para la inserción
+        // Obtener los IDs enviados por el frontend
+        $ekipamendu_id = $input['ekipamendu_id'] ?? null;
+        $gela_id = $input['gela_id'] ?? null;
 
-            $stmt = $mysqli->prepare("UPDATE gela SET izena = ? WHERE id = ?");
-            $stmt->bind_param("si", $nombre, $id);
-            $stmt->execute();
-            $stmt->close();
+        if (!$ekipamendu_id || !$gela_id) {
+            throw new Exception("Faltan IDs para la ubicación.");
+        }
+        
+        // Llamar al método estático insert
+        $ok = Gestioa::insert((int)$ekipamendu_id, (int)$gela_id);
 
-            $response['success'] = true;
-            $response['message'] = "Gela actualizada correctamente";
-            break;
+        echo json_encode([
+            'success' => $ok,
+            'message' => $ok ? 'Ubicación insertada correctamente' : 'Error al insertar ubicación'
+        ]);
+        break;
 
-        // =================================================
-        // ELIMINAR GELA (opcional)
-        // =================================================
-        case "DELETE":
-            $id = $input['id'] ?? null;
-            if (!$id) throw new Exception("Falta el ID de la gela");
-
-            $stmt = $mysqli->prepare("DELETE FROM gela WHERE id = ?");
-            $stmt->bind_param("i", $id);
-            $stmt->execute();
-            $stmt->close();
-
-            $response['success'] = true;
-            $response['message'] = "Gela eliminada correctamente";
-            break;
-
-        default:
-            $response['message'] = "Acción no reconocida";
-
-    }
-} catch (Exception $e) {
-    $response['success'] = false;
-    $response['message'] = "Error: " . $e->getMessage();
+    default:
+        throw new Exception("Acción no reconocida: $action");
 }
 
-$mysqli->close();
-echo json_encode($response);
-exit;
+} catch (Throwable $e) {
+echo json_encode([
+    'success' => false,
+    'message' => 'Errorea: ' . $e->getMessage()
+]);
+}
